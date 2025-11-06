@@ -34,3 +34,6 @@ image = image.add_local_dir(Path(__file__).parent, remote_path="/root/src")
 image = image.add_local_dir(
     Path(__file__).parent.parent / "data" / "vencord", remote_path="/root/data/vencord"
 )
+image = image.add_local_dir(
+    Path(__file__).parent.parent / "config", remote_path="/root/config"
+)

@@ -1,0 +1,22 @@
+# Accelerate Configuration
+# Note: When using Modal, CLI arguments will dynamically detect GPUs and override these settings
+# This config is primarily for local development
+
+compute_environment: LOCAL_MACHINE
+distributed_type: DEEPSPEED
+deepspeed_config:
+  gradient_accumulation_steps: 1
+  gradient_clipping: 1.0
+  offload_optimizer_device: none
+  offload_param_device: none
+  zero3_init_flag: true
+  zero_stage: 2  # ZeRO-2: Optimizer state partitioning across GPUs
+fsdp_config: {}
+machine_rank: 0
+main_process_ip: null
+main_process_port: null
+main_training_function: main
+mixed_precision: fp16
+num_machines: 1
+num_processes: 2  # Update this based on your local GPU count (use 'accelerate config' to auto-detect)
+use_cpu: false

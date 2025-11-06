@@ -1,6 +1,9 @@
 from pathlib import PosixPath
 import modal
+from dotenv import load_dotenv
 from src.modal_image import app, image, volume
+
+load_dotenv()
 
 MINUTES = 60  # seconds
 HOURS = 60 * MINUTES
@@ -8,13 +11,12 @@ HOURS = 60 * MINUTES
 volume_path = PosixPath("/vol/data")
 tb_log_path = volume_path / "tb_logs"
 model_save_path = volume_path / "models"
-gpu = "A10G"
+gpu = os.getenv("GPU", "A10G:2")  # Multi-GPU: 2 GPUs by default
 
 
 with image.imports():
-    from src.sft import sft
-    from src.dataloaders import VenCord
-    from trl import SFTConfig
+    import yaml
+    import os
 
 
 @app.function(
@@ -24,35 +26,45 @@ with image.imports():
     timeout=1 * HOURS,
     secrets=[modal.Secret.from_name("wandb-secret")],
 )
-def train_modal():
-    config = SFTConfig(
-        output_dir=str(model_save_path),
-        logging_dir=str(tb_log_path),
-        max_steps=1000,
-        learning_rate=2e-4,
-        per_device_train_batch_size=1,
-        gradient_accumulation_steps=4,
-        logging_strategy="steps",
-        logging_steps=10,
-        save_strategy="epoch",
-        save_steps=100,
-        eval_strategy="epoch",
-        report_to="wandb",
-        num_train_epochs=1,
-    )
+def train_modal(config_path: str = "config/config.yaml"):
+    import subprocess
+    import torch
+    import tempfile
 
-    train_dataset = VenCord()
-    eval_dataset = train_dataset.shuffle(seed=42).select(range(10))
+    num_gpus = torch.cuda.device_count()
+    print(f"Detected {num_gpus} GPUs for training")
 
-    sft(
-        config=config,
-        train_dataset=train_dataset,
-        eval_dataset=eval_dataset,
-        resume_from_checkpoint=False,
-        callbacks=[],
-    )
+    with open(config_path, "r") as f:
+        config_dict = yaml.safe_load(f)
+
+    config_dict["output_dir"] = str(model_save_path)
+    config_dict["logging_dir"] = str(tb_log_path)
+    config_dict["report_to"] = "wandb"  # Use wandb for Modal
+
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as tmp:
+        yaml.dump(config_dict, tmp)
+        tmp_config_path = tmp.name
+
+    try:
+        cmd = [
+            "accelerate",
+            "launch",
+            "--config_file",
+            "config/accelerate_config.yaml",
+            "--num_processes",
+            str(num_gpus),
+            "-m",
+            "src.sft",
+            "--config",
+            tmp_config_path,
+        ]
+
+        print(f"Running command: {' '.join(cmd)}")
+        subprocess.run(cmd, check=True)
+    finally:
+        os.unlink(tmp_config_path)
 
 
 @app.local_entrypoint()
-def main():
-    train_modal.remote()
+def main(config_path: str = "config/config.yaml"):
+    train_modal.remote(config_path=config_path)
