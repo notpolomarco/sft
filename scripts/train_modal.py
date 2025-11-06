@@ -1,3 +1,4 @@
+import os
 from pathlib import PosixPath
 import modal
 from dotenv import load_dotenv
@@ -14,11 +15,6 @@ model_save_path = volume_path / "models"
 gpu = os.getenv("GPU", "A10G:2")  # Multi-GPU: 2 GPUs by default
 
 
-with image.imports():
-    import yaml
-    import os
-
-
 @app.function(
     image=image,
     volumes={volume_path: volume},
@@ -27,6 +23,8 @@ with image.imports():
     secrets=[modal.Secret.from_name("wandb-secret")],
 )
 def train_modal(config_path: str = "config/config.yaml"):
+    import yaml
+    import os
     import subprocess
     import torch
     import tempfile
@@ -46,18 +44,31 @@ def train_modal(config_path: str = "config/config.yaml"):
         tmp_config_path = tmp.name
 
     try:
-        cmd = [
-            "accelerate",
-            "launch",
-            "--config_file",
-            "config/accelerate_config.yaml",
-            "--num_processes",
-            str(num_gpus),
-            "-m",
-            "src.sft",
-            "--config",
-            tmp_config_path,
-        ]
+        if num_gpus == 1:
+            print("Single GPU detected: running script directly")
+            cmd = [
+                "python",
+                "-m",
+                "src.sft",
+                "--config",
+                tmp_config_path,
+            ]
+        else:
+            print(
+                f"Multi-GPU detected: using accelerate launch with {num_gpus} processes"
+            )
+            cmd = [
+                "accelerate",
+                "launch",
+                "--config_file",
+                "config/accelerate_config.yaml",
+                "--num_processes",
+                str(num_gpus),
+                "-m",
+                "src.sft",
+                "--config",
+                tmp_config_path,
+            ]
 
         print(f"Running command: {' '.join(cmd)}")
         subprocess.run(cmd, check=True)
